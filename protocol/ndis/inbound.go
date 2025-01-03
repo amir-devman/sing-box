@@ -2,7 +2,6 @@ package ndis
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"time"
 
@@ -77,7 +76,7 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		return nil, E.Cause(err, "create NDIS API")
 	}
 	inbound.api = api
-	localRouter, err := newLocalRouter(ctx, api)
+	localRouter, err := newLocalRouter(ctx, api, logger)
 	if err != nil {
 		return nil, E.Cause(err, "create local router")
 	}
@@ -112,7 +111,7 @@ func (i *Inbound) Start(stage adapter.StartStage) error {
 		return err
 	}
 	port := i.listener.TCPListener().Addr().(*net.TCPAddr).Port
-	return i.localRouter.Start(uint16(port))
+	return i.localRouter.Start(uint16(port), "8.8.8.8")
 }
 
 func (i *Inbound) Close() error {
@@ -131,7 +130,6 @@ func (i *Inbound) NewPacketEx(buffer *buf.Buffer, source M.Socksaddr) {
 }
 
 func (i *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {
-	fmt.Println(conn.LocalAddr(), conn.RemoteAddr())
 	metadata.Inbound = i.Tag()
 	metadata.InboundType = i.Type()
 	metadata.Destination = M.SocksaddrFromNet(conn.RemoteAddr())
@@ -153,6 +151,9 @@ func (i *Inbound) NewPacketConnectionEx(ctx context.Context, conn N.PacketConn, 
 	metadata.InboundOptions = i.listener.ListenOptions().InboundOptions
 	metadata.Source = source
 	metadata.Destination = destination
+	if destinationPort, loaded := i.localRouter.udpEndpoints[conn.LocalAddr().String()]; loaded {
+		metadata.Destination.Port = destinationPort
+	}
 	metadata.OriginDestination = i.listener.UDPAddr()
 	i.router.RoutePacketConnectionEx(ctx, conn, metadata, onClose)
 }
